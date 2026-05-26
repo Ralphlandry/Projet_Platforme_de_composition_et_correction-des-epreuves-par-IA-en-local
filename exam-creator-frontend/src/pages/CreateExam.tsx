@@ -71,7 +71,7 @@ interface ImportedQuestion {
   points?: number;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.123:8000/api';
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 

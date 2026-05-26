@@ -6,7 +6,12 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import engine
 
-app = FastAPI(title="Exam Creator Backend", version="1.0.0")
+app = FastAPI(
+    title="Exam Creator Backend",
+    version="1.0.0",
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json"
+)
 
 app.add_middleware(
     CORSMiddleware,

@@ -53,7 +53,7 @@ export type AdminUser = {
   } | null;
 };
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.123:8000';
 const TOKEN_KEY = 'exam_backend_token';
 const USER_KEY = 'exam_backend_user';
 

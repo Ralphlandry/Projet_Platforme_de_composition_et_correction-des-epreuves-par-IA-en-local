@@ -265,3 +265,37 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+
+
+
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+
+export default function Dashboard() {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const res = await api.get("/auth/me", {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        });
+
+        setUser(res.data);
+      } catch (err) {
+        console.log(err);
+      }
+    };
+
+    fetchUser();
+  }, []);
+
+  return (
+    <div>
+      <h1>Dashboard</h1>
+      {user ? <p>Bienvenue {user.email}</p> : <p>Chargement...</p>}
+    </div>
+  );
+}
