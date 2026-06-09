@@ -1,3 +1,5 @@
+// Composant qui calcule et affiche des statistiques de performance pour chaque question.
+// Utile pour identifier les questions les plus difficiles et les points faibles des étudiants.
 import { useEffect, useState } from 'react';
 import { BarChart3, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import { supabase } from '@/lib/backendClient';

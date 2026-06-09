@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Routes de gestion des examens, import PDF et suggestions d'IA."""
+
 import re
 from typing import Any
 
@@ -22,12 +24,14 @@ router = APIRouter(prefix="/api/exams", tags=["exams"])
 
 
 def _guess_question_type(item: dict[str, Any]) -> str:
+    """Déduit si une question est QCM ou réponse courte d'après ses options."""
     if item.get("options"):
         return "qcm"
     return "reponse_courte"
 
 
 def _extract_questions_from_text(text: str) -> list[dict[str, Any]]:
+    """Extrait des questions textuelles à partir du contenu d'un PDF."""
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
         return []
@@ -71,7 +75,7 @@ def _extract_questions_from_text(text: str) -> list[dict[str, Any]]:
     if extracted:
         return extracted
 
-    # Fallback: split by '?' and create short-answer questions.
+    # Fallback: split by '?' pour détecter des questions en texte libre.
     fallback = [chunk.strip() for chunk in text.split("?") if chunk.strip()]
     return [
         {
@@ -91,6 +95,7 @@ def import_exam_pdf(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
+    """Importe un PDF et tente d'en extraire des questions d'examen."""
     role = get_user_role(db, current_user.id)
     if role not in {"admin", "professeur"}:
         raise HTTPException(status_code=403, detail="Accès refusé")
@@ -133,6 +138,8 @@ def import_exam_pdf(
 
 
 class _QuestionIn(BaseModel):
+    """Schéma interne pour une question à traiter par l'IA."""
+
     question_text: str
     question_type: str = "reponse_courte"
     options: list[str] = []
@@ -141,18 +148,20 @@ class _QuestionIn(BaseModel):
 
 
 class _SuggestPayload(BaseModel):
+    """Payload attendu pour la génération de suggestions de réponses."""
+
     questions: list[_QuestionIn]
 
 
 def _has_letter_prefix(options: list[str]) -> bool:
-    """Return True if all options already start with A. / B. / C. / D. etc."""
+    """Détecte si les options sont préfixées par une lettre (A/B/C/D)."""
     return bool(options) and all(
         re.match(r'^[A-Da-d][.\)]\s', o) for o in options
     )
 
 
 def _build_answer_prompt(q: _QuestionIn) -> str:
-    """Build prompt using Qwen2.5 native instruction format."""
+    """Construit le prompt envoyé au modèle d'IA."""
 
     if q.question_type == "qcm" and q.options:
         if _has_letter_prefix(q.options):
@@ -186,7 +195,6 @@ def _build_answer_prompt(q: _QuestionIn) -> str:
             "### Reponse\n"
         )
 
-    # reponse_courte ou qcm sans options
     return (
         "### Instruction\n"
         "Tu es un assistant expert en informatique et en commerce electronique. "
@@ -197,15 +205,15 @@ def _build_answer_prompt(q: _QuestionIn) -> str:
 
 
 def _ask_ollama(prompt: str, question_type: str = "") -> str | None:
-    """Call Ollama with qwen2.5:3b. Token and context limits adapt to question type."""
+    """Interroge le service Ollama et renvoie le texte de réponse brut."""
     ollama_host = settings.ollama_url.rstrip("/")
     if question_type == "vrai_faux":
         max_tokens = 5
         num_ctx = 512
-    elif question_type == "qcm_options":  # QCM avec options : juste un chiffre
+    elif question_type == "qcm_options":
         max_tokens = 5
         num_ctx = 512
-    elif question_type in ("reponse_courte", "qcm"):  # QCM sans options ou réponse courte
+    elif question_type in ("reponse_courte", "qcm"):
         max_tokens = 80
         num_ctx = 512
     else:
@@ -230,27 +238,23 @@ def _ask_ollama(prompt: str, question_type: str = "") -> str | None:
 
 
 def _clean_llm_answer(raw: str | None, q: _QuestionIn) -> str:
-    """Extract the answer from LLM output."""
+    """Nettoie et normalise la réponse renvoyée par le modèle."""
     if not raw:
         return ""
 
-    # For QCM, parse letter (A/B/C/D) or number depending on option format.
     if q.question_type == "qcm" and q.options:
         if _has_letter_prefix(q.options):
-            # Model was asked for a letter → extract A/B/C/D
             m = re.search(r'\b([A-Da-d])\b', raw)
             if m:
                 idx = ord(m.group(1).upper()) - ord('A')
                 if 0 <= idx < len(q.options):
                     return q.options[idx]
-            # Fallback: maybe model returned the full text of an option
             raw_low = raw.lower()
             for opt in q.options:
                 if opt[3:].strip().lower() in raw_low:
                     return opt
             return ""
         else:
-            # Model was asked for a number 1-N
             m = re.search(r"\b([1-9])\b", raw)
             if m:
                 index = int(m.group(1)) - 1
@@ -258,7 +262,6 @@ def _clean_llm_answer(raw: str | None, q: _QuestionIn) -> str:
                     return q.options[index]
             return ""
 
-    # For Vrai/Faux, normalise.
     if q.question_type == "vrai_faux":
         low = raw.lower()
         if "vrai" in low:
@@ -267,7 +270,6 @@ def _clean_llm_answer(raw: str | None, q: _QuestionIn) -> str:
             return "Faux"
         return ""
 
-    # For short/long answers: clean up.
     cleaned = raw.strip()
     cleaned = re.sub(r"^(?:R[ée]ponses?\s*:\s*)", "", cleaned, flags=re.IGNORECASE).strip()
     if len(cleaned) > 1000:
@@ -276,8 +278,7 @@ def _clean_llm_answer(raw: str | None, q: _QuestionIn) -> str:
 
 
 def _process_one_question(q: _QuestionIn) -> dict[str, Any]:
-    """Process a single question through the LLM."""
-    # Determine effective type for token budget
+    """Traite une question via l'IA et renvoie la suggestion de réponse."""
     if q.question_type == "qcm" and q.options:
         effective_type = "qcm_options"
     else:
@@ -311,7 +312,7 @@ def suggest_answers(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    """Use LLM to suggest a correct answer for each extracted question."""
+    """Génère des suggestions de réponses à partir des questions fournies."""
     role = get_user_role(db, current_user.id)
     if role not in {"admin", "professeur"}:
         raise HTTPException(status_code=403, detail="Accès refusé")
@@ -352,7 +353,7 @@ def trigger_auto_correct(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    """Déclenche la correction IA d'une soumission en arrière-plan."""
+    """Lance en arrière-plan la correction automatique d'une soumission."""
     role = get_user_role(db, current_user.id)
     if role not in {"admin", "professeur", "etudiant"}:
         raise HTTPException(status_code=403, detail="Accès refusé")

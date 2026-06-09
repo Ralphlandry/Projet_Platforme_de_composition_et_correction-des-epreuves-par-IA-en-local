@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Configuration centralisée de l'application avec chargement depuis .env."""
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +15,8 @@ load_dotenv(BASE_DIR / ".env")
 
 @dataclass
 class Settings:
+    """Contient les paramètres de configuration de l'application."""
+
     database_url: str = os.getenv("DATABASE_URL", "postgresql+psycopg2://exam_user:exam_pass_123@localhost:5432/exam_creator")
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-me")
     jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
@@ -28,12 +32,13 @@ class Settings:
             if origin.strip()
         ]
     )
-    # Si CORS_ORIGINS vaut "*", on autorise tout (pratique en dev réseau local)
-    @property
-    def cors_allow_all(self) -> bool:
-        return os.getenv("CORS_ORIGINS", "").strip() == "*"
 
     ia_api_url: str = os.getenv("IA_API_URL", "http://localhost:8000")
+
+    @property
+    def cors_allow_all(self) -> bool:
+        """Indicate whether CORS doit autoriser toutes les origines."""
+        return os.getenv("CORS_ORIGINS", "").strip() == "*"
 
 
 settings = Settings()

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+"""Schémas Pydantic pour l'authentification et la gestion des utilisateurs."""
+
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class SignUpIn(BaseModel):
+    """Payload de création de compte pour l'inscription utilisateur."""
+
     email: EmailStr
     password: str = Field(min_length=6)
     full_name: str | None = None
@@ -27,23 +31,31 @@ class SignUpIn(BaseModel):
 
 
 class SignInIn(BaseModel):
+    """Payload de connexion utilisateur."""
+
     email: EmailStr
     password: str
 
 
 class UserOut(BaseModel):
+    """Données publiques renvoyées pour un utilisateur authentifié."""
+
     id: str
     email: str
     full_name: str | None = None
 
 
 class SessionOut(BaseModel):
+    """Réponse de session contenant le token d'accès et l'utilisateur."""
+
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     user: UserOut
 
 
 class AdminCreateUserIn(BaseModel):
+    """Payload de création de compte par un administrateur."""
+
     email: EmailStr
     password: str = Field(min_length=6)
     full_name: str | None = None
@@ -65,6 +77,8 @@ class AdminCreateUserIn(BaseModel):
 
 
 class AdminUpdateRoleIn(BaseModel):
+    """Payload de mise à jour du rôle utilisateur par un administrateur."""
+
     role: Literal["admin", "professeur", "etudiant"]
     student_number: str | None = None
     level_id: str | None = None
@@ -83,10 +97,14 @@ class AdminUpdateRoleIn(BaseModel):
 
 
 class AdminResetPasswordIn(BaseModel):
+    """Payload de réinitialisation de mot de passe administrateur."""
+
     user_id: str
     new_password: str = Field(min_length=8)
 
 
 class AdminDisableUserIn(BaseModel):
+    """Payload de désactivation ou réactivation de compte."""
+
     user_id: str
     disabled: bool

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Routes génériques pour l'accès CRUD aux tables via l'API de base de données."""
+
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -55,6 +57,7 @@ def _write_audit(
 
 
 def _student_exam_scope(db: Session, user_id: str):
+    """Construit la portée des examens autorisés pour un étudiant."""
     student_profile = get_student_profile(db, user_id)
     if not student_profile:
         return None
@@ -76,6 +79,7 @@ def _student_exam_scope(db: Session, user_id: str):
 
 
 def _ensure_exam_allowed_for_student(db: Session, user_id: str, exam_id: str) -> bool:
+    """Vérifie qu'un étudiant a le droit d'accéder à un examen exact."""
     scoped = _student_exam_scope(db, user_id)
     if not scoped:
         return False
@@ -90,6 +94,7 @@ def _create_notification_if_missing(
     message: str,
     notif_type: str = "info",
 ) -> bool:
+    """Crée une notification si aucune notification identique n'existe déjà."""
     existing = (
         db.query(Notification)
         .filter(
@@ -116,6 +121,7 @@ def _create_notification_if_missing(
 
 
 def _notify_students_for_exam_publication(db: Session, exam_row: Exam) -> int:
+    """Envoie une notification aux étudiants concernés lorsqu'un examen est publié."""
     if not exam_row.specialty_id or not exam_row.level_id:
         return 0
 
@@ -147,6 +153,7 @@ def _notify_students_for_exam_publication(db: Session, exam_row: Exam) -> int:
 
 
 def _notify_admins_for_exam_action(db: Session, exam_row: Exam, actor: Profile, actor_role: str, action: str) -> int:
+    """Notifie les administrateurs lorsqu'un professeur publie ou programme un examen."""
     if actor_role != "professeur":
         return 0
 
@@ -185,13 +192,14 @@ def db_query(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
+    """Exécute une requête générique sur une table avec isolation de rôle."""
     model = TABLE_MODELS.get(payload.table)
     if not model:
         raise HTTPException(status_code=400, detail="Table non supportée")
 
     current_role = get_user_role(db, current_user.id)
 
-    # Auto-publier les épreuves programmées dont l'heure de début est arrivée
+    # Auto-publier les examens programmés lorsque l'heure de début est atteinte.
     if payload.table == "exams":
         now_local = datetime.now()
         pending = db.query(Exam).filter(Exam.status == "programme", Exam.start_date != None, Exam.start_date <= now_local).all()
@@ -236,11 +244,9 @@ def db_query(
         elif payload.table in {"classes", "class_students", "questions"}:
             raise HTTPException(status_code=403, detail="Accès refusé à cette ressource")
 
-    # Auto-clôturer les soumissions "en_cours" dont le délai est dépassé (vue professeur)
     if payload.table == "submissions" and current_role == "professeur":
         exam_id_filter = next((f.value for f in payload.filters if f.column == "exam_id"), None)
         if exam_id_filter:
-            # exam_id_filter can be a single string (eq) or a list (in)
             single_exam_id = exam_id_filter if isinstance(exam_id_filter, str) else (exam_id_filter[0] if isinstance(exam_id_filter, list) and len(exam_id_filter) == 1 else None)
             now_utc = datetime.utcnow()
             _exam_ac = db.query(Exam).filter(Exam.id == single_exam_id).first() if single_exam_id else None
@@ -264,7 +270,6 @@ def db_query(
                 if _closed:
                     db.commit()
 
-    # Isolation professeur : ne voir que ses propres examens et ressources associées
     elif current_role == "professeur":
         if payload.table == "exams":
             query = query.filter(Exam.created_by == current_user.id)
@@ -290,8 +295,6 @@ def db_query(
     rows = [serialize_row(row) for row in query.all()]
     rows = hydrate_related(db, payload.table, rows)
 
-    # Sécurité anti-triche : masquer la bonne réponse pendant la passation de l'examen.
-    # La table "answers" (consultation des résultats) conserve correct_answer intentionnellement.
     if current_role == "etudiant" and payload.table == "exam_questions":
         for row in rows:
             if isinstance(row.get("question"), dict):
@@ -315,6 +318,7 @@ def db_insert(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
+    """Insère des données dans une table, avec contraintes de rôle."""
     model = TABLE_MODELS.get(payload.table)
     if not model:
         raise HTTPException(status_code=400, detail="Table non supportée")
@@ -330,7 +334,6 @@ def db_insert(
         data = dict(raw)
         data.setdefault("id", str(uuid.uuid4()))
 
-        # Convert ISO datetime strings to Python datetime objects
         dt_cols = DATETIME_COLUMNS.get(payload.table, set())
         for col in dt_cols:
             if col in data:
@@ -340,14 +343,12 @@ def db_insert(
             exam_id = data.get("exam_id")
             if not exam_id or not _ensure_exam_allowed_for_student(db, current_user.id, exam_id):
                 raise HTTPException(status_code=403, detail="Épreuve non autorisée pour votre profil")
-            # Unicité : un étudiant ne peut avoir qu'une seule soumission par examen
             existing_sub = db.query(Submission).filter(
                 Submission.exam_id == exam_id,
                 Submission.student_id == current_user.id,
             ).first()
             if existing_sub:
                 raise HTTPException(status_code=409, detail="Vous avez déjà une soumission pour cette épreuve")
-            # Allowlist strict : l'étudiant ne peut pas se fixer un score ou un statut corrigé
             _SUBMISSION_INSERT_ALLOWED = {"id", "exam_id", "student_id", "started_at"}
             data = {k: v for k, v in data.items() if k in _SUBMISSION_INSERT_ALLOWED}
             data["student_id"] = current_user.id
@@ -365,7 +366,6 @@ def db_insert(
             )
             if not owned_submission:
                 raise HTTPException(status_code=403, detail="Soumission non autorisée")
-            # Allowlist strict : l'étudiant ne peut pas s'attribuer des points
             _ANSWER_INSERT_ALLOWED = {"id", "submission_id", "question_id", "answer_text"}
             data = {k: v for k, v in data.items() if k in _ANSWER_INSERT_ALLOWED}
 
@@ -398,6 +398,7 @@ def db_update(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
+    """Met à jour des enregistrements en respectant les règles de périmètre."""
     model = TABLE_MODELS.get(payload.table)
     if not model:
         raise HTTPException(status_code=400, detail="Table non supportée")
@@ -418,7 +419,6 @@ def db_update(
     if current_role == "etudiant" and payload.table == "answers":
         query = query.join(Submission, Answer.submission_id == Submission.id).filter(Submission.student_id == current_user.id)
 
-    # Isolation professeur : ne modifier que ses propres ressources
     if current_role == "professeur":
         if payload.table == "exams":
             query = query.filter(Exam.created_by == current_user.id)
@@ -433,21 +433,17 @@ def db_update(
     publish_candidates: list[Exam] = []
     admin_notification_candidates: list[tuple[Exam, str]] = []
 
-    # Convert ISO datetime strings to Python datetime objects
     dt_cols = DATETIME_COLUMNS.get(payload.table, set())
     parsed_data = dict(payload.data)
     for col in dt_cols:
         if col in parsed_data:
             parsed_data[col] = parse_datetime(parsed_data[col])
 
-    # Allowlist strict pour les étudiants — empêche l'auto-notation
     if current_role == "etudiant":
         if payload.table == "submissions":
-            # Champs autorisés : status (soumission) + incidents (journal réseau anti-triche)
             parsed_data = {k: v for k, v in parsed_data.items() if k in {"status", "incidents"}}
             if "status" in parsed_data and parsed_data["status"] not in {"en_cours", "soumis"}:
                 raise HTTPException(status_code=403, detail="Modification de statut non autorisée")
-            # Vérification côté serveur : délai de l'épreuve non dépassé
             if parsed_data.get("status") == "soumis":
                 for row in rows:
                     if row.exam_id and row.started_at:
@@ -479,7 +475,6 @@ def db_update(
                 setattr(row, key, value)
 
         if payload.table == "answers" and not (getattr(row, "answer_text", "") or "").strip():
-            # Business rule: blank answer cannot receive points.
             setattr(row, "points_awarded", 0.0)
 
         if payload.table == "exams":
@@ -505,11 +500,9 @@ def db_update(
         if should_commit_notifications:
             db.commit()
 
-    # Notifier l'étudiant quand sa note est définitive
     if payload.table == "submissions" and payload.data.get("status") == "corrige":
         for row in rows:
             if row.student_id:
-                # Récupérer le titre de l'épreuve
                 exam_title = ""
                 if row.exam_id:
                     exam_obj = db.query(Exam).filter(Exam.id == row.exam_id).first()
@@ -541,6 +534,7 @@ def db_delete(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
+    """Supprime des enregistrements en respectant les contraintes de rôle."""
     model = TABLE_MODELS.get(payload.table)
     if not model:
         raise HTTPException(status_code=400, detail="Table non supportée")
@@ -552,7 +546,6 @@ def db_delete(
     query = db.query(model)
     query = apply_filters(query, model, payload.filters)
 
-    # Isolation professeur : ne supprimer que ses propres ressources
     if current_role == "professeur":
         if payload.table == "exams":
             query = query.filter(Exam.created_by == current_user.id)
@@ -571,7 +564,6 @@ def db_delete(
         return {"data": {"deleted": count}, "error": None}
 
     if current_role == "etudiant" and payload.table == "answers":
-        # SQLAlchemy forbids bulk delete on joined queries. Resolve allowed ids first.
         answer_ids = [
             row[0]
             for row in query

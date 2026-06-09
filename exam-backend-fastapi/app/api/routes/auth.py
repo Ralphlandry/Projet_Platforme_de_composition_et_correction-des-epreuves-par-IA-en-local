@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Routes d'authentification et gestion des comptes utilisateurs."""
+
 import time
 import uuid
 from collections import defaultdict
@@ -12,7 +14,16 @@ from app.api.deps import get_current_user
 from app.core.security import create_access_token, hash_password, is_password_too_long, verify_password
 from app.db.session import get_db
 from app.models import AuditLog, Level, Notification, Profile, Specialty, StudentProfile, Subject, UserRole
-from app.schemas import AdminCreateUserIn, AdminDisableUserIn, AdminResetPasswordIn, AdminUpdateRoleIn, SessionOut, SignInIn, SignUpIn, UserOut
+from app.schemas import (
+    AdminCreateUserIn,
+    AdminDisableUserIn,
+    AdminResetPasswordIn,
+    AdminUpdateRoleIn,
+    SessionOut,
+    SignInIn,
+    SignUpIn,
+    UserOut,
+)
 from app.services.db_ops import get_user_role
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -24,6 +35,7 @@ _LOGIN_WINDOW = 300  # secondes
 
 
 def _check_rate_limit(ip: str) -> None:
+    """Vérifie et met à jour le compteur de tentatives pour une IP donnée."""
     now = time.time()
     _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_WINDOW]
     if len(_login_attempts[ip]) >= _LOGIN_MAX:
@@ -32,10 +44,12 @@ def _check_rate_limit(ip: str) -> None:
 
 
 def _reset_rate_limit(ip: str) -> None:
+    """Réinitialise le compteur de tentatives pour une IP après une connexion réussie."""
     _login_attempts.pop(ip, None)
 
 
 def _ensure_valid_student_dependencies(db: Session, level_id: str | None, specialty_id: str | None) -> None:
+    """Vérifie que le niveau et la spécialité existent pour un étudiant."""
     level = db.query(Level).filter(Level.id == level_id).first()
     if not level:
         raise HTTPException(status_code=400, detail="Niveau étudiant invalide")
@@ -46,6 +60,7 @@ def _ensure_valid_student_dependencies(db: Session, level_id: str | None, specia
 
 
 def _create_welcome_notification(db: Session, user: Profile, role: str) -> None:
+    """Crée une notification de bienvenue pour le nouvel utilisateur."""
     existing = (
         db.query(Notification)
         .filter(
@@ -78,6 +93,7 @@ def _create_welcome_notification(db: Session, user: Profile, role: str) -> None:
 
 
 def _create_user_with_role(db: Session, payload: AdminCreateUserIn | SignUpIn) -> Profile:
+    """Crée un utilisateur et ses données associées selon le rôle demandé."""
     existing = db.query(Profile).filter(Profile.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
@@ -129,12 +145,14 @@ def _create_user_with_role(db: Session, payload: AdminCreateUserIn | SignUpIn) -
 
 
 def _ensure_admin(db: Session, user_id: str) -> None:
+    """Vérifie que l'utilisateur connecté a le rôle administrateur."""
     if get_user_role(db, user_id) != "admin":
         raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
 
 
 @router.post("/signup", response_model=SessionOut)
 def signup(payload: SignUpIn, db: Session = Depends(get_db)):
+    """Inscription publique d'un nouvel utilisateur."""
     if is_password_too_long(payload.password):
         raise HTTPException(status_code=400, detail="Mot de passe trop long (maximum 72 octets)")
 
@@ -149,6 +167,7 @@ def signup(payload: SignUpIn, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=SessionOut)
 def login(request: Request, payload: SignInIn, db: Session = Depends(get_db)):
+    """Authentifie un utilisateur et renvoie un token JWT."""
     client_ip = request.client.host if request.client else "unknown"
     _check_rate_limit(client_ip)
     if is_password_too_long(payload.password):
@@ -168,6 +187,7 @@ def login(request: Request, payload: SignInIn, db: Session = Depends(get_db)):
 
 @router.get("/me")
 def me(current_user: Profile = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Retourne les informations du compte connecté."""
     role = get_user_role(db, current_user.id)
     return {
         "user": {
@@ -181,6 +201,7 @@ def me(current_user: Profile = Depends(get_current_user), db: Session = Depends(
 
 @router.get("/signup-options")
 def signup_options(db: Session = Depends(get_db)):
+    """Renvoie les options de niveaux et spécialités disponibles pour l'inscription."""
     levels = db.query(Level).order_by(Level.name.asc()).all()
     specialties = db.query(Specialty).order_by(Specialty.name.asc()).all()
     return {
@@ -195,6 +216,7 @@ def admin_create_user(
     current_user: Profile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Création d'un utilisateur par un administrateur."""
     _ensure_admin(db, current_user.id)
 
     if is_password_too_long(payload.password):
@@ -218,6 +240,7 @@ def admin_update_role(
     current_user: Profile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Met à jour le rôle d'un utilisateur et ses données étudiantes associées."""
     _ensure_admin(db, current_user.id)
 
     user = db.query(Profile).filter(Profile.id == user_id).first()
@@ -262,6 +285,7 @@ def admin_list_users(
     current_user: Profile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Liste les utilisateurs et leurs rôles pour l'administration."""
     _ensure_admin(db, current_user.id)
 
     profiles = db.query(Profile).order_by(Profile.created_at.desc()).all()

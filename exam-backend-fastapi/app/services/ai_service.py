@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Service d'IA pour l'auto-correction et l'analyse de questions."""
+
 from datetime import datetime
 import re
 
@@ -11,6 +13,7 @@ from app.models import Answer, Exam, ExamQuestion, Profile, Question, Submission
 
 
 def _map_question_type(qt: str | None) -> str:
+    """Normalise le type interne de question pour le service IA."""
     if qt == "qcm":
         return "qcm"
     if qt == "vrai_faux":
@@ -21,12 +24,14 @@ def _map_question_type(qt: str | None) -> str:
 
 
 def _normalize_text(value: str | None) -> str:
+    """Normalise le texte pour comparaison sans casse ni espaces redondants."""
     if not value:
         return ""
     return " ".join(value.strip().lower().split())
 
 
 def _extract_choice_letter(value: str | None) -> str | None:
+    """Extrait une lettre de choix (A-D) d'une réponse formatée."""
     if not value:
         return None
     match = re.match(r"^\s*([a-d])(?:[\)\.\-\s]|$)", value.strip(), flags=re.IGNORECASE)
@@ -36,6 +41,7 @@ def _extract_choice_letter(value: str | None) -> str | None:
 
 
 def _is_qcm_answer_correct(question: Question, answer_text: str | None) -> bool:
+    """Vérifie si une réponse QCM/Vrai-Faux correspond à la réponse attendue."""
     expected = (question.correct_answer or "").strip()
     answer = (answer_text or "").strip()
     if not expected or not answer:
@@ -52,7 +58,7 @@ def _is_qcm_answer_correct(question: Question, answer_text: str | None) -> bool:
     if expected_letter and answer_letter and expected_letter == answer_letter:
         return True
 
-    # If expected is a letter, try matching the corresponding option text.
+    # If expected is a letter, match it against the option text.
     if expected_letter and isinstance(question.options, list):
         index = ord(expected_letter) - ord("A")
         if 0 <= index < len(question.options):
@@ -64,6 +70,11 @@ def _is_qcm_answer_correct(question: Question, answer_text: str | None) -> bool:
 
 
 def auto_correct_submission(db: Session, submission_id: str) -> None:
+    """Corrige automatiquement une soumission en utilisant le moteur d'IA.
+
+    Cette fonction construit un payload d'évaluation, interroge le service IA et
+    applique un recalcul déterministe pour les questions objectives.
+    """
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission or not submission.exam_id:
         return
@@ -164,7 +175,7 @@ def auto_correct_submission(db: Session, submission_id: str) -> None:
 
         q = question_by_id.get(ans.question_id)
         if q and q.question_type in {"qcm", "vrai_faux"}:
-            # Deterministic guardrail for objective questions.
+            # Guardrail déterministe pour les questions objectives.
             if _is_qcm_answer_correct(q, ans.answer_text):
                 pts = float(q.points or 1)
                 ans_correct = True
@@ -181,9 +192,8 @@ def auto_correct_submission(db: Session, submission_id: str) -> None:
         ans.is_correct = ans_correct
         total_score += pts
 
-    # Use deterministic recomputed total to stay consistent with per-answer guardrails.
+    # Recalcule final du score par somme des points attribués.
     submission.score = float(total_score)
-    # Auto-correction is provisional until teacher validates manually.
     submission.status = "corrige_auto"
     submission.graded_at = datetime.utcnow()
     db.commit()

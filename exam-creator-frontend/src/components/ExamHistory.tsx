@@ -1,3 +1,5 @@
+// Composant d'affichage de l'historique des modifications d'un examen.
+// Il agrège les audit logs liés à l'examen, aux questions et aux sections.
 import { useEffect, useState } from 'react';
 import { History, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';

@@ -11,12 +11,15 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+"""Script utilitaire pour créer ou mettre à jour un compte administrateur."""
+
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models import Profile, UserRole
 
 
 def main() -> None:
+    """Parse les arguments CLI et crée / met à jour un utilisateur admin."""
     parser = argparse.ArgumentParser(description="Create initial admin user")
     parser.add_argument("--email", required=True, help="Admin email")
     parser.add_argument("--password", required=True, help="Admin password")

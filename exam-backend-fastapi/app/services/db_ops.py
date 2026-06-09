@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Opérations de requête et sérialisation partagées pour l'API database."""
+
 from datetime import datetime
 from typing import Any
 
@@ -45,22 +47,25 @@ TABLE_MODELS = {
 
 
 def get_user_role(db: Session, user_id: str) -> str:
+    """Retourne le rôle principal de l'utilisateur ou 'etudiant' par défaut."""
     role = db.query(UserRole).filter(UserRole.user_id == user_id).first()
     return role.role if role else "etudiant"
 
 
 def get_student_profile(db: Session, user_id: str) -> StudentProfile | None:
+    """Récupère le profil étudiant associé à un utilisateur."""
     return db.query(StudentProfile).filter(StudentProfile.user_id == user_id).first()
 
 
 def serialize_value(value: Any) -> Any:
+    """Convertit les valeurs de colonne en formats JSON compatibles."""
     if isinstance(value, datetime):
         return value.isoformat()
     return value
 
 
 def parse_datetime(value: Any) -> datetime | None:
-    """Convert an ISO string to a datetime object, returning None if invalid."""
+    """Convertit une chaîne ISO en datetime naive UTC, ou renvoie None si invalide."""
     if value is None or isinstance(value, datetime):
         return value
     if isinstance(value, str) and value.strip():
@@ -85,6 +90,7 @@ DATETIME_COLUMNS = {
 
 
 def serialize_row(row: Any) -> dict[str, Any]:
+    """Sérialise un enregistrement SQLAlchemy en dictionnaire JSON-friendly."""
     data: dict[str, Any] = {}
     for column in row.__table__.columns:
         if column.name == "password_hash":
@@ -94,6 +100,7 @@ def serialize_row(row: Any) -> dict[str, Any]:
 
 
 def apply_filters(query, model, filters):
+    """Applique une liste de filtres simples sur une requête SQLAlchemy."""
     for f in filters:
         col = getattr(model, f.column, None)
         if col is None:
@@ -114,10 +121,12 @@ def apply_filters(query, model, filters):
 
 
 def count_query(query) -> int:
+    """Retourne le nombre d'enregistrements d'une requête sans charger les lignes."""
     return query.with_entities(func.count()).scalar() or 0
 
 
 def hydrate_related(db: Session, table: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ajoute des relations dérivées aux résultats pour éviter des requêtes supplémentaires côté client."""
     if table == "classes":
         level_ids = [r.get("level_id") for r in rows if r.get("level_id")]
         levels = db.query(Level).filter(Level.id.in_(level_ids)).all() if level_ids else []

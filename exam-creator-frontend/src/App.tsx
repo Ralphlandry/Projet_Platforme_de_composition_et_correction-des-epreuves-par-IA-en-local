@@ -1,3 +1,5 @@
+// Point d'entrée principal de l'application React.
+// Ce fichier configure le provider de requêtes, le routage et les permissions par rôle.
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -32,6 +34,8 @@ import SendNotifications from "./pages/admin/SendNotifications";
 import AdminAuditLogs from "./pages/admin/AuditLogs";
 import NotFound from "./pages/NotFound";
 
+// Configuration globale de react-query utilisée dans toute l'application.
+// Les données restent fraîches 30 secondes et les caches inactifs sont conservés 5 minutes.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -77,6 +81,7 @@ const ProtectedRoute = ({
   return <>{children}</>;
 };
 
+// Déclaration des routes de l'application selon les profils : admin, professeur, etudiant.
 const AppRoutes = () => {
   const { user, role, loading } = useAuth();
 

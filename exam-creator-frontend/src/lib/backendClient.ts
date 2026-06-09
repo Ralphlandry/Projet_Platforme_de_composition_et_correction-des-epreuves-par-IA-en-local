@@ -1,3 +1,5 @@
+// Client léger pour interroger l'API backend et stocker la session utilisateur.
+// Il encapsule la logique d'appel HTTP et de gestion du token JWT côté frontend.
 type Filter = {
   op: 'eq' | 'in' | 'not';
   column: string;
@@ -72,6 +74,7 @@ const USER_KEY = 'exam_backend_user';
 type AuthListener = (event: string, session: Session | null) => void;
 const authListeners: AuthListener[] = [];
 
+// Lit la session stockée dans sessionStorage et renvoie null si elle est absente ou invalide.
 function getStoredSession(): Session | null {
   // sessionStorage : le token n'est pas conservé après fermeture du navigateur/onglet
   // (moins de risque de vol que localStorage en cas de XSS persistant)
@@ -98,6 +101,7 @@ function setStoredSession(session: Session | null) {
   authListeners.forEach((cb) => cb(session ? 'SIGNED_IN' : 'SIGNED_OUT', session));
 }
 
+// Exécute un appel HTTP vers l'API backend en ajoutant le token d'authentification si présent.
 async function apiCall(path: string, method: string, body?: any) {
   const session = getStoredSession();
   const headers: Record<string, string> = {

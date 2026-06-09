@@ -1,3 +1,5 @@
+"""Application FastAPI principale et initialisation de la base de données."""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -19,6 +21,11 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event() -> None:
+    """Prepare la base de données au démarrage de l'application.
+
+    Cette fonction crée les tables SQLAlchemy manquantes et applique des
+    migrations légères en SQL direct pour les colonnes et tables attendues.
+    """
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
         conn.execute(
@@ -54,7 +61,8 @@ def startup_event() -> None:
             )
         )
         conn.execute(text("ALTER TABLE exam_questions ADD COLUMN IF NOT EXISTS part_id VARCHAR(36);"))
-        # Remove legacy FK to subjects for student specialty to allow dedicated filiere ids.
+        # Supprime la contrainte héritée sur student_profiles.specialty_id pour
+        # permettre de gérer des spécialités sans lien direct avec les sujets.
         conn.execute(text("ALTER TABLE student_profiles DROP CONSTRAINT IF EXISTS student_profiles_specialty_id_fkey;"))
 
 

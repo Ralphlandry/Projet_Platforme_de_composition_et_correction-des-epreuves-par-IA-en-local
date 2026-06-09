@@ -1,3 +1,5 @@
+"""Endpoint d'initialisation des données de référence pour l'application."""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,7 @@ router = APIRouter(prefix="/api/setup", tags=["setup"])
 
 @router.post("/init")
 def init_setup(db: Session = Depends(get_db)):
+    """Crée les sujets, spécialités et niveaux par défaut si absents."""
     created = {"subjects": 0, "levels": 0, "specialties": 0}
 
     default_subjects = [

@@ -1,3 +1,5 @@
+"""Regroupe les routes de l'API sous un routeur FastAPI unique."""
+
 from fastapi import APIRouter
 
 from app.api.routes.auth import router as auth_router

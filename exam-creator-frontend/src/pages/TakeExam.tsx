@@ -1,3 +1,5 @@
+// Page de passation d'examen. Gère le chargement, la sauvegarde automatique,
+// le chronomètre et les règles anti-triche côté client.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Clock, Send, AlertTriangle, Maximize, Shield } from 'lucide-react';
@@ -55,6 +57,8 @@ interface Exam {
   end_date: string | null;
 }
 
+// Composant principal de la page de passation.
+// Il se charge de l'état de l'examen, des réponses et de la logique de soumission.
 const TakeExam = () => {
   const { t } = useLanguage();
   const { id } = useParams<{ id: string }>();
