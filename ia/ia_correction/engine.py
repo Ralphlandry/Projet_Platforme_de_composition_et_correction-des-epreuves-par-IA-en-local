@@ -3,8 +3,16 @@ import os
 import re
 import requests
 
+try:
+    from sentence_transformers import SentenceTransformer, util
+except ImportError:  # pragma: no cover
+    SentenceTransformer = None
+    util = None
+
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+EMBEDDING_MODEL = os.getenv("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
+_embedding_model = None
 
 
 def _normalize(text: str) -> str:
@@ -14,6 +22,26 @@ def _normalize(text: str) -> str:
 def _extract_letter(text: str) -> str | None:
     m = re.match(r"^\s*([a-d])(?:[\)\.\-\s]|$)", text.strip(), re.IGNORECASE)
     return m.group(1).upper() if m else None
+
+
+def _get_sentence_transformer_model() -> "SentenceTransformer":
+    global _embedding_model
+    if SentenceTransformer is None:
+        raise RuntimeError(
+            "sentence-transformers n'est pas installé. Ajoutez le package dans ia/requirements.txt et installez-le."
+        )
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+    return _embedding_model
+
+
+def _semantic_similarity(text_a: str, text_b: str) -> float:
+    if not text_a or not text_b:
+        return 0.0
+    model = _get_sentence_transformer_model()
+    embeddings = model.encode([text_a, text_b], convert_to_tensor=True, normalize_embeddings=True)
+    similarity = float(util.cos_sim(embeddings[0], embeddings[1]).item())
+    return max(0.0, min(1.0, similarity))
 
 
 def _correct_qcm(reponse_attendue: str, reponse_eleve: str, options: list | None) -> tuple[bool, float, str]:
@@ -72,12 +100,17 @@ def _correct_courte(enonce: str, reponse_attendue: str, reponse_eleve: str, poin
     if norm_eleve == norm_attendue:
         return points_max, "Réponse correcte."
 
+    similarity = _semantic_similarity(reponse_attendue, reponse_eleve)
+    if similarity >= 0.94:
+        return points_max, f"Réponse sémantiquement très proche de la référence ({similarity:.2f})."
+
     prompt = f"""Tu es un correcteur bienveillant d'examen en informatique. Ton role est d'evaluer si l'etudiant a compris le concept, pas de verifier la formulation exacte.
 
 Question : {enonce}
 Reponse de reference : {reponse_attendue}
 Reponse etudiant : {reponse_eleve}
 Points maximum : {points_max}
+Similarite sémantique avec la reference : {similarity:.2f}
 
 Regles IMPORTANTES :
 - Evalue le SENS et la comprehension, pas les mots exacts.
@@ -103,12 +136,14 @@ def _correct_longue(enonce: str, reponse_attendue: str, reponse_eleve: str, poin
     if not reponse_eleve.strip():
         return 0.0, "Aucune réponse fournie."
 
+    similarity = _semantic_similarity(reponse_attendue, reponse_eleve)
     prompt = f"""Tu es un correcteur bienveillant d'examen universitaire en informatique. Evalue cette redaction.
 
 Question : {enonce}
 Elements attendus (reference) : {reponse_attendue}
 Redaction de l'etudiant : {reponse_eleve}
 Points maximum : {points_max}
+Similarite sémantique avec la reference : {similarity:.2f}
 
 Methode d'evaluation (sois GENEREUX et BIENVEILLANT) :
 1. Identifie les concepts cles dans la reponse de reference.
